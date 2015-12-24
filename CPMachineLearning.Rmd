@@ -1,0 +1,95 @@
+---
+title: "MLProject"
+author: "AOverlack"
+date: "24 december 2015"
+output: html_document
+---
+
+###Introduction
+This Markdown document describes the modelfitting of sensor data to predict correct or incorrect  execution of training exercises by 6 persons, distinguishing between 5 possible outcomes ("classe")  of execution.  
+
+### Model selection
+Since this assignment concerns a straightforward classification problem, with pure numerical input data, the most likely model to be used is a RandomForest. During evaluation, it became clear that the best performance was obtained with a specific setting for "ntree"=300 and "nodesize"=5, which yielded just over 99% overall accuracy on the validation set. The initial training set was partitioned in three parts: "trainer", "tester"and "validator", where the trainer and tester were used to find the best fit, and the validator set was used to predict the expected "Out Of Sample" error.  
+
+###Preprocessing
+After initial loading the csv files, the irrelevant columns, containing only NA's or timestamp or other variables not related to movement, were removed.
+```{r preprocessing,cache=TRUE}
+
+train <- read.csv("pml-training.csv")
+test <- read.csv("pml-testing.csv")
+slimtest <- test[,colSums(is.na(test))!=nrow(test)]
+slimtrain <- train[,colSums(is.na(test))!=nrow(test)]
+training <- slimtrain[,8:60]
+testing <- slimtest[,8:60]
+
+```
+###Splitting the training set in three partitions
+It should be taken into account that the portion of "A" observations is about 50% larger than the other observations on average. At this stage this difference is ignored.  
+Now we need three partitions of the Training set: "trainer" (60%), tester"(20%)
+and "validator" (20%), Due to random selection, the relative portions per classe will be the approx. the same.
+```{r Partition,cache=TRUE}
+
+library(caret)
+set.seed(123)
+validate <- createDataPartition(y=training$classe,p=0.2,list =FALSE)
+validator <- training[validate,]
+remainder <- training[-validate,]
+
+set.seed(456)
+trainfrac <- createDataPartition(y=remainder$classe,p=6/8,list=FALSE)
+trainer <- remainder[trainfrac,]
+tester <- remainder[-trainfrac,]
+
+```
+###Fitting a Random Forest model and measuring accuracy
+First, a standard application of the RandomForest model is used, as a baseline for further optimization.  
+```{r ModelStd}
+
+library(randomForest)
+library(caret)
+set.seed(123)
+RFMod <- randomForest(classe~.,data=trainer)
+RFPred <- predict(RFMod,newdata=tester)
+ConfMat <- confusionMatrix(table(RFPred,tester$classe))
+accur <- sum(diag(ConfMat$table))/sum(ConfMat$table)
+
+```
+This yields already a very high score of accuracy:`r accur`, as applied to the test set.
+This model uses the standard 500 trees and a node size of 7
+In the figure below, the very steep and than shallow response of the error-rate is given for each of the classes.
+
+```{r figure, echo=FALSE}
+
+plot(RFMod)
+
+```
+
+This model is cross validated against the "validator" data set.
+```{r validate}
+RFPredV <- predict(RFMod,newdata=validator)
+ConfMatV <- confusionMatrix(table(RFPredV,validator$classe))
+accurV <- sum(diag(ConfMatV$table))/sum(ConfMat$table)
+
+```
+Testing against the validator set yields an accuracy of: `r accurV`, which is slightly better than the test-set score.  
+The "out of sample" errror is therefore estimated to be `r 1-accurV`.  
+For this reason no further optimization is tried and other models are not applied.
+
+###Output 
+The results of the application of the model to the testing set are generated and stored in the working directory.
+
+```{r Output,echo=FALSE}
+
+Result <- predict(RFMod,slimtest)
+
+pml_write_files = function(x){
+        n = length(x)
+        for(i in 1:n){
+                filename = paste0("problem_id_",i,".txt")
+                write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+        }
+}
+pml_write_files(Result)
+
+```
+
